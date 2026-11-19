@@ -119,6 +119,29 @@ async function main() {
   // ---- миникарта-колесо (без подписей)
   const hud = new WheelHud(ui, L, street.sMax, SEAM.width);
 
+  // ---- счётчик кругов (левый нижний угол): сколько раз пройден шов вперёд от точки старта
+  const laps = document.createElement('div');
+  laps.className = 'laps';
+  laps.setAttribute('role', 'status');
+  laps.setAttribute('aria-live', 'polite');
+  laps.innerHTML = '<span class="laps-n">0</span><span class="laps-l">laps</span>';
+  ui.appendChild(laps);
+  const lapsN = laps.querySelector('.laps-n') as HTMLElement;
+  const lapsL = laps.querySelector('.laps-l') as HTMLElement;
+  const lapOf = (s: number) => Math.floor((s - street.sMin) / L);
+  const lapBase = lapOf(controls.s);
+  let lapsShown = 0;
+  const updateLaps = (s: number) => {
+    const n = Math.max(0, lapOf(s) - lapBase);
+    if (n === lapsShown) return;
+    lapsShown = n;
+    lapsN.textContent = String(n);
+    lapsL.textContent = n === 1 ? 'lap' : 'laps';
+    laps.classList.remove('bump');
+    void laps.offsetWidth; // перезапуск анимации
+    laps.classList.add('bump');
+  };
+
   // любая правка в панели → пересортировка с новыми параметрами
   let tuneVersion = 0;
   if (params.has('tune')) new TunePanel(ui, S, () => tuneVersion++);
@@ -286,6 +309,7 @@ async function main() {
     renderer.render(uni, LOOK.bg);
 
     hud.update(sCam);
+    updateLaps(controls.s);
 
     if (debug.visible) {
       const st = streamer.stats();
