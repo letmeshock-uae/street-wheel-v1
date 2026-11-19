@@ -1,5 +1,8 @@
 // GLSL. Математика изгиба и «проявления» должна совпадать с ring.ts / sort.worker.ts.
 
+/** надписи из частиц: дальше FAR м — редкая пыль, ближе NEAR м — дописаны целиком */
+export const TEXT_REVEAL = { near: 22, far: 90 };
+
 export const SPLAT_VS = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
@@ -25,6 +28,9 @@ uniform vec4 u_float;   // scatterBase, scatterPerM, driftNear, driftFar — «�
 uniform highp sampler2D u_birth; // время заливки каждой страницы пула (строки текстуры)
 uniform vec4 u_motion;  // скорость прилёта (1/с), доля «собирающихся» у порога, -, -
 
+const float TXT_NEAR = ${TEXT_REVEAL.near.toFixed(1)};
+const float TXT_FAR = ${TEXT_REVEAL.far.toFixed(1)};
+
 layout(location = 0) in uint a_index;
 
 out vec4 v_color;
@@ -49,7 +55,8 @@ void main() {
   vec4 se = texelFetch(u_seg, ivec2(seg * 2 + 1, 0), 0);
   vec3 p = sb.xyz + vec3(float(A.x & 0xffffu), float(A.x >> 16u), float(A.y & 0xffffu)) * (se.xyz / 65535.0);
   float rank = float(A.y >> 16u) / 65535.0;
-  bool partOnly = sb.w > 0.5;
+  bool partOnly = sb.w > 0.5 && sb.w < 1.5; // частицы шва
+  bool isText = sb.w > 1.5;                  // надписи из частиц (particletext.ts)
 
   float sCam = u_ring.x, kappa = u_ring.y, L = u_ring.z, sMin = u_ring.w, sMax = u_ring2.x;
   float d = wrapd(p.x - sCam, L);
@@ -60,7 +67,16 @@ void main() {
   //  em   — насколько сплат «собрался» на своём месте: 0 — парит частицей в воздухе, 1 — на месте.
   //  Каждый сплат рождается частицей у порога видимости и слетается на место по мере приближения.
   float dens, pf, densEm;
-  if (partOnly) {
+  float textEm = 0.0;
+  if (isText) {
+    // надпись «пишется» по мере приближения в порядке чтения (порядок лежит в ранге точки);
+    // когда человек проходит сквозь неё, она снова рассыпается, а не слепит облаком
+    float k = clamp((TXT_FAR - ad) / (TXT_FAR - TXT_NEAR), 0.0, 1.0);
+    textEm = smoothstep(rank - 0.03, rank + 0.1, k * 1.1) * smoothstep(4.0, 12.0, ad);
+    dens = 1.0;
+    densEm = 1.0;
+    pf = 0.0;
+  } else if (partOnly) {
     float t = smoothstep(u_part.x * 0.5, u_dens.y, ad);
     dens = mix(u_seamP.x, u_seamP.y, t);
     float e = abs(wrapd(p.x - sMax, L));
@@ -77,7 +93,7 @@ void main() {
     densEm = min(raw, lim); // без ограничения сверху: рядом всё гарантированно «собрано»
     pf = max(max(smoothstep(u_part.x, u_part.y, ad), sm), lt);
   }
-  float fade = 1.0 - smoothstep(dens * 0.82, dens, rank);
+  float fade = isText ? 1.0 : 1.0 - smoothstep(dens * 0.82, dens, rank);
   if (fade <= 0.002) return;
 
   uint hsh = pcg(idx);
@@ -91,8 +107,10 @@ void main() {
   float birth = texelFetch(u_birth, ivec2(int(idx >> 11u), 0), 0).r;
   float arrive = clamp((u_misc.w - birth) * u_motion.x - rnd * 0.45, 0.0, 1.0);
   arrive = arrive * arrive * (3.0 - 2.0 * arrive);
+  // несобранная надпись — лишь малая часть её точек; остальные появляются по мере сборки
+  if (isText && rnd3 > mix(0.12, 1.0, smoothstep(0.0, 0.6, textEm))) return;
   // «собираются» только самые новые сплаты на данной дистанции (доля u_motion.y) — у порога видимости
-  float em = (densEm < 0.0 ? 0.45 : 1.0 - smoothstep(densEm * (1.0 - u_motion.y), densEm, rank)) * arrive;
+  float em = (isText ? textEm : densEm < 0.0 ? 0.45 : 1.0 - smoothstep(densEm * (1.0 - u_motion.y), densEm, rank)) * arrive;
   fade *= min(1.0, arrive * 4.0);
   float pfE = max(pf, 1.0 - em);
 
@@ -110,7 +128,7 @@ void main() {
   vec3 rdir = vec3(rnd, rnd2, rnd3) * 2.0 - 1.0;
   float farT = smoothstep(u_part.y * 0.4, u_part.y * 2.2, ad); // ~25 м → ~140 м: средний план читается, дальний парит
   float scatter = (1.0 - em) * (u_float.x + ad * u_float.y);
-  float drift = u_float.z * pfE + u_float.w * farT;
+  float drift = (u_float.z * pfE + u_float.w * farT) * (isText ? 0.15 : 1.0); // буквы не дрожат
   vec3 wob = vec3(
     sin(time * (0.23 + 0.17 * rnd) + rnd2 * 6.2831 + W.x * 0.07),
     sin(time * (0.19 + 0.15 * rnd2) + rnd3 * 6.2831 + W.z * 0.09),
@@ -128,6 +146,8 @@ void main() {
   float alpha = mix(col.a, max(col.a, u_part.w), pf);
   alpha = mix(alpha, min(1.0, alpha * 2.0), 1.0 - em);
   float tw = 1.0 - u_seam.w * pfE * (0.5 + 0.5 * sin(time * (0.8 + 1.7 * rnd) + rnd2 * 6.2831));
+  // ещё не дописанное — тусклая пыль; надпись, сквозь которую проходишь, гаснет
+  if (isText) alpha *= mix(0.45, 1.0, em) * smoothstep(3.0, 10.0, ad);
   alpha *= fade * axle * tw * u_ring2.w;
   if (alpha < 1.0 / 255.0) return;
 

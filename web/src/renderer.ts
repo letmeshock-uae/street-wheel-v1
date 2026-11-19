@@ -137,15 +137,17 @@ export class SplatRenderer {
     for (const row of pages) gl.texSubImage2D(gl.TEXTURE_2D, 0, row, 0, 1, 1, gl.RED, gl.FLOAT, t);
   }
 
-  setSegments(m: Manifest) {
+  /** таблица сегментов для шейдера: bmin/ext для распаковки позиций; флаг 1 — частицы шва, 2 — надписи */
+  setSegments(m: Manifest, extra: { id: number; bmin: number[]; ext: number[]; flag: number }[] = []) {
     const gl = this.gl;
-    const n = m.segments.length + 1;
+    const n = Math.max(m.segments.length, m.seam.id, ...extra.map((e) => e.id)) + 1;
     const data = new Float32Array(n * 2 * 4);
     for (const s of m.segments) {
       data.set([s.bmin[0], s.bmin[1], s.bmin[2], 0, s.ext[0], s.ext[1], s.ext[2], 0], s.id * 8);
     }
     const sm = m.seam;
     data.set([sm.bmin[0], sm.bmin[1], sm.bmin[2], 1, sm.ext[0], sm.ext[1], sm.ext[2], 0], sm.id * 8);
+    for (const e of extra) data.set([e.bmin[0], e.bmin[1], e.bmin[2], e.flag, e.ext[0], e.ext[1], e.ext[2], 0], e.id * 8);
     gl.bindTexture(gl.TEXTURE_2D, this.segTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, n * 2, 1, 0, gl.RGBA, gl.FLOAT, data);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);

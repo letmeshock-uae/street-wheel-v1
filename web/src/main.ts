@@ -7,6 +7,7 @@ import { Adaptive, detectQuality, PROFILES } from './quality';
 import { SplatRenderer, type FrameUniforms } from './renderer';
 import { DEFAULT_REVEAL, smoothstep, wrap, type RevealParams } from './ring';
 import { Streamer } from './streamer';
+import { buildParticleText, type ParticleTextSpec } from './particletext';
 import type { SortIn, SortOut, SortRequest } from './sort.worker';
 import { loadSettings, TunePanel } from './tune';
 
@@ -25,9 +26,11 @@ const SEAM = { inner: 1, outer: SEAM_W * 0.8, width: SEAM_W };
 // ---- настройки сцены. Живые — в панели (?tune — кнопка в правом верхнем углу), см. tune.ts;
 // через URL: ?eye=3&pitch=0.4&fov=78&exp=1.2, а также ?lane=-8&s=55
 const S = loadSettings(params);
+// по умолчанию путь начинается сразу за швом: впереди первая фраза цитаты, позади — последняя
+const START_AFTER_SEAM = 12;
 const LOOK = {
   lane: Number(params.get('lane') ?? -8),
-  startS: Number(params.get('s') ?? 0),
+  startS: params.has('s') ? Number(params.get('s')) : null,
   bg: [0.0, 0.0, 0.0] as [number, number, number],
 };
 
@@ -90,9 +93,28 @@ async function main() {
   cam.fovY = (S.fov * Math.PI) / 180;
   const controls = new Controls(canvas);
   controls.basePitch = S.pitch;
-  controls.s = controls.sTarget = LOOK.startS;
+  controls.s = controls.sTarget = LOOK.startS ?? street.sMin + START_AFTER_SEAM;
   controls.mouseLook = true;
   const adaptive = new Adaptive();
+
+  // ---- цитата из частиц вдоль всего кольца (particletext.ts): собирается в браузере, пока идёт интро
+  const textSpec: ParticleTextSpec = {
+    sMin: street.sMin,
+    sMax: street.sMax,
+    length: L,
+    lane: LOOK.lane,
+    mpp: profile.name === 'low' ? 0.04 : profile.name === 'mid' ? 0.03 : 0.024,
+    segId: Math.max(manifest.segments.length, manifest.seam.id) + 1,
+    scaleLogMin: manifest.quant.scaleLogMin,
+    scaleLogMax: manifest.quant.scaleLogMax,
+  };
+  if (!params.has('notext'))
+    void buildParticleText(textSpec)
+      .then(({ chunk, bmin, ext }) => {
+        renderer.setSegments(manifest, [{ id: textSpec.segId, bmin, ext, flag: 2 }]);
+        streamer.addText(chunk, bmin[0], bmin[0] + ext[0]);
+      })
+      .catch((e) => console.warn('particle text', e));
 
   // ---- миникарта-колесо (без подписей)
   const hud = new WheelHud(ui, L, street.sMax, SEAM.width);

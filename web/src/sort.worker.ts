@@ -12,6 +12,7 @@ interface WChunk {
   id: number;
   seg: number;
   partOnly: boolean;
+  text: boolean; // надписи из частиц: видны на всём кольце, шейдер сам решает, сколько их «дописано»
   n: number;
   pos: Float32Array;
   rank: Uint16Array;
@@ -56,6 +57,7 @@ export type SortIn =
       id: number;
       seg: number;
       partOnly: boolean;
+      text?: boolean;
       pos: Float32Array;
       rank: Uint16Array;
       alpha: Uint8Array;
@@ -153,7 +155,9 @@ function sort(req: SortRequest) {
 
   for (const c of chunks.values()) {
     let maxDens: number;
-    if (c.partOnly) {
+    if (c.text) {
+      maxDens = 1;
+    } else if (c.partOnly) {
       maxDens = 0;
       for (let b = 0; b < nb; b += 8) if (lutP[b] > maxDens) maxDens = lutP[b];
     } else {
@@ -164,12 +168,12 @@ function sort(req: SortRequest) {
     if (c.rankMin > maxDens + margin) continue;
     candidates += c.n;
     const lut = c.partOnly ? lutP : lutD;
-    const pos = c.pos, rank = c.rank, pages = c.pages, n = c.n, partOnly = c.partOnly;
+    const pos = c.pos, rank = c.rank, pages = c.pages, n = c.n, partOnly = c.partOnly || c.text, text = c.text;
     for (let i = 0; i < n; i++) {
       const i3 = i * 3;
       const s = pos[i3], h = pos[i3 + 1], w = pos[i3 + 2];
       const b = binOf(s);
-      let dens = lut[b];
+      let dens = text ? 1 : lut[b];
       if (!partOnly) {
         const aw = Math.abs(w - latC);
         if (aw > latIn) {
@@ -235,7 +239,7 @@ function pick(req: PickRequest) {
   // так же, как глаз видит поверхность из множества полупрозрачных сплатов
   const hits: { t: number; a: number; s: number; h: number; w: number }[] = [];
   for (const c of chunks.values()) {
-    if (c.partOnly) continue;
+    if (c.partOnly || c.text) continue;
     const pos = c.pos, rank = c.rank, alpha = c.alpha, n = c.n;
     for (let i = 0; i < n; i++) {
       if (alpha[i] < 5) continue;
@@ -282,6 +286,7 @@ self.onmessage = (e: MessageEvent<SortIn>) => {
         id: m.id,
         seg: m.seg,
         partOnly: m.partOnly,
+        text: !!m.text,
         n: m.rank.length,
         pos: m.pos,
         rank: m.rank,

@@ -32,7 +32,7 @@ export class Streamer {
   private nextDecoder = 0;
   private jobId = 1;
   private jobs = new Map<number, { onChunk: (c: DecodedChunk) => void; resolve: () => void; reject: (e: Error) => void; onProgress?: (n: number) => void }>();
-  private uploads: { st: ChunkState | null; chunk: DecodedChunk; partOnly: boolean; s0: number; s1: number; rankMin: number }[] = [];
+  private uploads: { st: ChunkState | null; chunk: DecodedChunk; partOnly: boolean; text?: boolean; s0: number; s1: number; rankMin: number }[] = [];
   private pendingFree: { pages: Int32Array; afterReq: number }[] = [];
   private nextChunkId = 1;
   private inflight = 0;
@@ -109,6 +109,13 @@ export class Streamer {
     );
     this.processUploads(Infinity);
     void this.loadSeam();
+  }
+
+  /** Готовый кусок, собранный в браузере (надписи из частиц). Не выгружается. */
+  addText(chunk: DecodedChunk, s0: number, s1: number) {
+    const st: ChunkState = { key: `${chunk.seg}:text`, seg: chunk.seg, tier: -2, state: 'loading', id: 0, pages: null, count: chunk.count, bytes: 0 };
+    this.chunks.set(st.key, st);
+    this.uploads.push({ st, chunk, partOnly: false, text: true, s0, s1, rankMin: 0 });
   }
 
   /** Частицы шва: облако в форме профиля улицы, которое прячет стык концов. */
@@ -269,6 +276,7 @@ export class Streamer {
         id,
         seg: u.chunk.seg,
         partOnly: u.partOnly,
+        text: u.text,
         pos: u.chunk.pos,
         rank: u.chunk.rank,
         alpha: u.chunk.alpha,
