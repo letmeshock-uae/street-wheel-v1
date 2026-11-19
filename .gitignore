@@ -1,0 +1,11 @@
+# исходная модель (141 МБ — больше лимита GitHub); данные для сайта генерируются из неё в web/public/data
+*.sog
+*.ply
+node_modules/
+dist/
+.vercel/
+.claude/
+__pycache__/
+.DS_Store
+.vercel
+.env*

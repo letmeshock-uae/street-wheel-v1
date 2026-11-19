@@ -1,0 +1,6 @@
+*.sog
+*.ply
+web/node_modules
+web/dist
+.claude
+.env*
