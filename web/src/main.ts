@@ -1,4 +1,5 @@
 import './style.css';
+import { inject } from '@vercel/analytics';
 import { Camera } from './camera';
 import type { Manifest } from './data';
 import { Controls } from './controls';
@@ -10,6 +11,9 @@ import { Streamer } from './streamer';
 import { buildParticleText, type ParticleTextSpec } from './particletext';
 import type { SortIn, SortOut, SortRequest } from './sort.worker';
 import { loadSettings, TunePanel } from './tune';
+
+// Initialize Vercel Analytics
+inject();
 
 const params = new URLSearchParams(location.search);
 // ?data=имя_папки — A/B-сравнение разных сборок данных из public/
